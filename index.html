@@ -1,0 +1,1072 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Watch a simulated phone calculate and display its battery percentage.">
+  <meta name="theme-color" content="#10161f">
+  <title>Where Does Battery % Come From?</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 1rem/1.5 "Segoe UI", system-ui, sans-serif; }
+    h1, h2, h3, p { margin: 0; }
+    input, button { font: inherit; }
+    button { cursor: pointer; }
+    a { color: var(--green); }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 3px solid #b65e28; outline-offset: 3px; }
+    .wrap { width: min(1150px, calc(100% - 40px)); margin-inline: auto; }
+    h1 { font-size: clamp(1.95rem, 5.6vw, 3.8rem); line-height: 1.06; letter-spacing: -.06em; }
+    h1 strong { color: var(--lime); font-weight: inherit; white-space: nowrap; }
+    main { padding-block: 13px 24px; }
+    .card { background: white; border: 1px solid var(--edge); border-radius: 12px; }
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 9px 12px; }
+    .action { min-height: 40px; padding: 6px 10px; color: var(--ink); background: #f6faf6; border: 1px solid #c8daca; border-radius: 7px; font-size: .86rem; font-weight: 700; }
+    .action:hover { background: #e9f3e8; }
+    .action[aria-pressed="true"] { background: #e1efd8; border-color: #7c9d69; }
+    .primary { color: white; background: var(--green); border-color: var(--green); padding-inline: 12px; }
+    .primary:hover { background: #174f37; }
+    #notice { color: var(--muted); font-size: .82rem; }
+    .bench {
+      display: grid; grid-template-columns: minmax(115px,.83fr) minmax(0,1.55fr);
+      gap: clamp(9px,3.5vw,44px); align-items: center; position: relative; isolation: isolate;
+      padding: clamp(10px,2vw,20px); margin-top: 8px; border-radius: 12px; background: radial-gradient(ellipse at 10% 0%,#39574d,transparent 61%),#1c3029;
+    }
+    #connections { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 4; pointer-events: none; }
+    .phone {
+      width: min(100%,203px); aspect-ratio: .54; margin-inline: auto; border-radius: clamp(14px,4vw,28px);
+      position: relative; background: linear-gradient(125deg,#bccbc2 1%,#43534d 22%,#16231f 60%,#60736a); padding: 4px;
+      box-shadow: 0 9px 19px #0c1914a8, inset 0 0 0 1px #98a79e55;
+    }
+    .phone::before, .phone::after { content: ""; position: absolute; right: -2px; width: 2px; border-radius: 2px; background: #879b90; }
+    .phone::before { top: 30%; height: 13%; }
+    .phone::after { top: 48%; height: 8%; }
+    .glass {
+      height: 100%; position: relative; overflow: hidden; border: 3px solid #0b1512; border-radius: inherit; color: #fff;
+      background: radial-gradient(ellipse at 89% 15%,#5d8876 0%,transparent 49%),radial-gradient(ellipse at -15% 104%,#51726b 0%,#294945 43%,#132b28 78%);
+    }
+    .glass::before {
+      content: ""; position: absolute; inset: 17% -60% -11% -30%; opacity: .78; transform: rotate(-23deg);
+      background: repeating-radial-gradient(ellipse at 47% 45%,#b4ddb121 0 1px,transparent 2px 18px);
+      mask-image: linear-gradient(150deg,transparent 5%,black 43%,transparent 91%);
+      transition: opacity .45s ease;
+    }
+    .phone[data-xray="true"] .glass::before { opacity: .16; }
+    .internals { position: absolute; inset: 14% 9% 9%; display: grid; grid-template-rows: 1fr 2.6fr .34fr; gap: 5%; opacity: 0; transform: scale(.96); visibility: hidden; transition: opacity .38s, transform .38s, visibility .38s; }
+    .phone[data-xray="true"] .internals { opacity: 1; transform: none; visibility: visible; }
+    .logic-board { position: relative; border: 1px solid #8fba9b; border-radius: 5px; background: repeating-linear-gradient(90deg, #f1d29342 0 1px, transparent 1px 7px), #315f4e; }
+    .logic-board::before, .logic-board::after { content: ""; position: absolute; border: 1px solid #9ec8a2; border-radius: 2px; background: #14271f; }
+    .logic-board::before { left: 17%; top: 24%; width: 30%; height: 49%; }
+    .logic-board::after { right: 14%; top: 37%; width: 20%; height: 33%; }
+    .pack { position: relative; display: grid; place-items: center; overflow: hidden; border: 1px solid #b9d598; border-radius: 5px; background: #263532; }
+    .pack::before { content: ""; position: absolute; inset: 0; background: repeating-linear-gradient(128deg, transparent 0 7px, #ffffff15 7px 8px); }
+    #pack-fill { position: absolute; bottom: 0; left: 0; right: 0; height: 42%; background: linear-gradient(0deg,#627e44,#aacb6e); opacity: .7; }
+    .pack span { position: relative; color: #f7fff0; font-size: clamp(.57rem,1.3vw,.74rem); font-weight: 750; }
+    .internal-connector { border-radius: 4px; margin-inline: 23%; background: linear-gradient(90deg,#374e43,#d0ac72,#374e43); }
+    .scan { position: absolute; z-index: 1; inset: 0; opacity: 0; pointer-events: none; background: linear-gradient(0deg, transparent 42%,#c6f1a982 49%,#dbf8bf 50%,transparent 55%); }
+    .phone[data-xray="true"] .scan { animation: reveal-internals .65s ease-out; }
+    @keyframes reveal-internals { 0% { opacity: 0; transform: translateY(-58%); } 24% { opacity: .74; } 100% { opacity: 0; transform: translateY(58%); } }
+    .camera { position: absolute; width: clamp(6px,1.25vw,9px); aspect-ratio: 1; background: #091310; box-shadow: inset 0 0 0 1px #334c45; border-radius: 50%; left: 50%; top: 6px; transform: translateX(-50%); }
+    .statusbar { position: absolute; top: 5px; left: clamp(4px,1vw,9px); right: clamp(4px,1vw,9px); display: flex; justify-content: space-between; align-items: center; gap: 3px; font-size: clamp(.58rem,1.45vw,.78rem); line-height: 1.3; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .status-battery { min-width: 33px; display: inline-flex; align-items: center; justify-content: flex-end; gap: 3px; min-height: 14px; }
+    .status-battery[data-ready="false"] { visibility: hidden; }
+    .status-battery[data-ready="true"] { animation: arrive .54s ease-out both; }
+    @keyframes arrive { from { opacity: 0; transform: translateY(-2px); filter: drop-shadow(0 0 5px #e3ffad); } to { opacity: 1; transform: none; filter: none; } }
+    .battery-icon { width: clamp(12px,2.3vw,18px); height: clamp(7px,1.2vw,9px); padding: 1px; border: 1px solid #fff; border-radius: 2px; position: relative; margin-right: 2px; }
+    .battery-icon::after { content: ""; position: absolute; width: 2px; height: 3px; top: 1px; right: -3px; background: #fff; }
+    #battery-fill { display: block; height: 100%; background: #fff; }
+    .gesture { position: absolute; bottom: 5px; left: 34%; right: 34%; height: 2px; border-radius: 2px; background: #e8f5e4c7; }
+    .board {
+      min-width: 0; position: relative; border: 1px solid #608c73; border-radius: 10px; padding: clamp(7px,1.6vw,14px);
+      color: #eefbf0; background: linear-gradient(#a4c8ad0d 1px,transparent 1px) 0 0 / 14px 14px,linear-gradient(90deg,#a4c8ad0d 1px,transparent 1px) 0 0 / 14px 14px,#23513e;
+    }
+    .board h2 { font-size: clamp(.9rem,2.4vw,1.13rem); letter-spacing: -.02em; margin-bottom: 5px; }
+    .parts { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); align-items: stretch; gap: clamp(8px,3vw,30px); }
+    .part {
+      position: relative; z-index: 5; display: grid; place-items: center; min-height: 42px; padding: 5px 2px;
+      text-align: center; line-height: 1.18; font-size: clamp(.63rem,1.6vw,.82rem); color: #eefbf0;
+      background: #29463a; border: 1px solid #729786; border-radius: 5px; overflow-wrap: anywhere;
+    }
+    .part, .gauge { transition: background .28s ease, border-color .28s ease, color .28s ease, box-shadow .28s ease; }
+    .part.active { color: #192b1f; background: #d6efad; border-color: #e9f8d0; box-shadow: 0 0 9px #d7f29138; }
+    .gauge {
+      width: min(74%,230px); min-height: 55px; display: flex; justify-content: center; align-items: center; flex-direction: column;
+      position: relative; z-index: 5; margin: 19px auto 7px; padding: 4px 6px;
+      color: #eefbf0; background: #13241e; border: 1px solid #9cc6a5; border-radius: 5px;
+      outline: 1px dashed #9cc6a577; outline-offset: 3px;
+    }
+    .gauge.active { box-shadow: 0 0 13px #c9f8794d; }
+    .gauge strong { font-size: .79rem; }
+    #chip-value { color: var(--lime); font: 700 clamp(.76rem,2vw,1.03rem) var(--mono); min-height: 1.4em; }
+    .board .legend { display: flex; flex-wrap: wrap; gap: 4px; color: #dbede0; font-size: .75rem; line-height: 1.4; }
+    .layer { color: inherit; background: #244738; border: 1px solid #7ba28a; border-radius: 5px; min-height: 28px; padding: 3px 6px; white-space: nowrap; }
+    .layer[aria-pressed="false"] { color: #b1c8ba; opacity: .72; }
+    .layer::before { content: ""; display: inline-block; width: 13px; border-top: 2px solid #efc985; margin-right: 4px; vertical-align: 3px; }
+    .layer:last-child::before { border-top: 2px dashed #c8f38b; }
+    .workflow { margin-top: 8px; padding: 9px 12px 11px; }
+    .tabs { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 5px; }
+    .tabs button { min-height: 34px; padding: 4px; background: #f5f8f4; border: 1px solid #ccdacc; border-radius: 6px; color: var(--ink); font-size: .82rem; font-weight: 700; }
+    .tabs button[aria-pressed="true"] { background: #e1efd8; border-color: #7c9d69; }
+    .tabs button[data-complete="true"] { border-bottom-color: #579171; }
+    .scene h3 { font-size: .98rem; margin-bottom: 3px; }
+    .scene p { font-size: .88rem; }
+    .scene p + p { margin-top: 3px; }
+    .scene:not([hidden]) { animation: step-in .32s ease-out both; }
+    @keyframes step-in { from { opacity: .25; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    .math { font: 700 .84rem/1.6 var(--mono) !important; color: var(--green); }
+    .scale { height: 7px; background: #dce9de; border-radius: 8px; margin: 7px 0 5px; position: relative; }
+    #pin { position: absolute; top: -3px; width: 13px; height: 13px; border-radius: 50%; transform: translateX(-50%); background: var(--green); border: 2px solid white; }
+    .range-labels { display: flex; justify-content: space-between; gap: 3px; font: .75rem var(--mono); color: var(--muted); }
+    .usage { display: flex; gap: 3px; align-items: end; min-height: 29px; margin-block: 4px; }
+    .interval { min-width: 0; position: relative; height: var(--height); overflow: hidden; background: #e0ebe1; border-radius: 3px 3px 0 0; }
+    .interval span { display: block; height: 100%; width: 0; background: #39885e; }
+    .interval-log { display: flex; flex-wrap: wrap; gap: 4px; margin-block: 4px; }
+    .capacity-track { height: 9px; margin-block: 6px; border-radius: 8px; overflow: hidden; background: #e0ebe1; }
+    #capacity-fill { display: block; width: 0; height: 100%; background: #39885e; border-radius: inherit; }
+    .slider { margin-top: 6px; }
+    .slider label { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px; font-weight: 650; font-size: .9rem; }
+    .slider label span { color: var(--green); font-family: var(--mono); }
+    input[type="range"] { width: 100%; min-height: 26px; margin: 0; accent-color: var(--green); }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    @media (max-width: 600px) {
+      .wrap { width: calc(100% - 20px); }
+      main { padding-top: 8px; }
+      .bench { padding: 8px; }
+      .phone { width: min(100%,162px); }
+    }
+    @media (max-width: 360px) {
+      .bench { grid-template-columns: minmax(98px,.83fr) minmax(0,1.55fr); gap: 7px; }
+      .parts { gap: 6px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
+
+    :root {
+      color-scheme: dark;
+      --ink: #ebf0f6;
+      --muted: #aab9c9;
+      --paper: #0c1016;
+      --edge: #283543;
+      --green: #9bdeff;
+      --lime: #d1f477;
+      --amber: #ffc26b;
+      --violet: #cbb3ff;
+      --mono: "Cascadia Mono", Consolas, monospace;
+    }
+    body { background: var(--paper); }
+    header {
+      background: radial-gradient(ellipse at 7% 120%, #192d40, transparent 60%),
+                  radial-gradient(ellipse at 100% 0%, #202e27 0, transparent 40%), #111720;
+      border-bottom: 1px solid var(--edge);
+    }
+    :focus-visible { outline: 2px solid var(--green); outline-offset: 3px; }
+    main { padding-block: 15px 24px; }
+    .card { background: #131b24; }
+    .controls { padding: 10px; }
+    .action { background: #1b2530; border-color: #394858; }
+    .action:hover { background: #263443; }
+    .action[aria-pressed="true"] { color: var(--green); background: #1a2c3b; border-color: #5890ad; }
+    .primary { background: var(--lime); border-color: var(--lime); color: #18210d; padding-inline: 15px; }
+    .primary:hover { background: #e1ffa0; }
+    #notice { margin-inline: 4px; }
+    .bench {
+      grid-template-columns: minmax(170px,.82fr) minmax(0,2.6fr);
+      grid-template-areas: "phone board" "phone workflow";
+      grid-template-rows: auto 1fr;
+      gap: 14px clamp(13px,3vw,37px);
+      margin-top: 12px; padding: clamp(11px,2vw,23px);
+      border: 1px solid var(--edge);
+      background: radial-gradient(ellipse at 12% 45%, #243342, transparent 45%),
+                  repeating-linear-gradient(0deg, transparent 0 23px, #9badca10 23px 24px),
+                  repeating-linear-gradient(90deg, transparent 0 23px, #9badca10 23px 24px), #101720;
+    }
+    .phone {
+      grid-area: phone; width: min(100%, 215px); border-radius: clamp(17px,4vw,31px);
+      padding: clamp(3px, .6vw, 6px); background: linear-gradient(126deg,#a7b3c0 2%,#44515f 19%,#16202c 57%,#758294);
+      box-shadow: 0 14px 30px #080b129e, inset 0 0 0 1px #b1c0d260;
+    }
+    .phone::before, .phone::after { background: #8495a9; }
+    .glass {
+      border-color: #070b11;
+      background: radial-gradient(ellipse at 110% 15%,#52708e,transparent 52%),
+                  radial-gradient(ellipse at -5% 83%,#244b6b 0%,#162f4b 38%,#101722 77%);
+    }
+    .glass::before { background: repeating-radial-gradient(ellipse at 47% 45%, #83bbff2c 0 1px, transparent 2px 18px); }
+    .phone[data-xray="true"] .glass { background: #101720; }
+    .camera { background: #070b12; box-shadow: inset 0 0 0 1px #425369; }
+    .board { grid-area: board; background-color: #182431; border-color: #3a4b60; padding: clamp(9px,1.25vw,14px); }
+    .board h2 { margin-bottom: 2px; }
+    .part { background: #202e3c; border-color: #485a70; color: var(--ink); font-weight: 650; }
+    .part small { font: .73em var(--mono); color: var(--muted); }
+    #sensor.active { border-color: var(--amber); color: var(--amber); background: #33291d; box-shadow: 0 0 14px #ffc26b26; }
+    #sensor.active small { color: var(--amber); }
+    #cell.active { border-color: var(--violet); color: var(--violet); background: #29243e; box-shadow: 0 0 14px #cbb3ff26; }
+    .gauge { background: #111923; border-color: #587189; outline-color: #587189a0; margin-block: 15px 8px; min-height: 47px; }
+    .gauge.active { box-shadow: 0 0 14px #70d8ff26; border-color: #81b7cf; }
+    .board .legend { color: var(--ink); }
+    .layer { background: #1b2734; border-color: #4b5c6d; }
+    .layer[aria-pressed="false"] { color: var(--muted); }
+    .layer::before { border-color: var(--amber); }
+    .layer:last-child::before { border-color: var(--green); }
+    .workflow { grid-area: workflow; min-width: 0; margin-top: 0; padding: clamp(9px,1.4vw,15px); }
+    .workflow h2 { font-size: 1rem; margin-bottom: 9px; letter-spacing: -.015em; }
+    .tabs { gap: 6px; }
+    .tabs button {
+      --step-color: var(--green);
+      min-width: 0; min-height: 66px; display: grid; align-content: space-between; gap: 4px;
+      text-align: left; padding: 7px; color: var(--ink); background: #19232f; border-color: #354456;
+      font-size: clamp(.73rem,1.35vw,.87rem); line-height: 1.25;
+      transition: border-color .23s, background .23s, box-shadow .23s;
+    }
+    .tabs button:hover { background: #213043; }
+    .tabs button[data-jump="0"], .tabs button[data-jump="2"] { --step-color: var(--amber); }
+    .tabs button[data-jump="1"] { --step-color: var(--violet); }
+    .tabs button[data-jump="4"] { --step-color: var(--lime); }
+    .tabs button[data-complete="true"] { border-bottom-color: var(--step-color); }
+    .tabs button[aria-pressed="true"] { border-color: var(--step-color); background: #222c39; box-shadow: 0 0 10px #0005; }
+    .step-reading { color: var(--step-color); overflow-wrap: anywhere; font: 650 clamp(.66rem,1.22vw,.77rem)/1.25 var(--mono); }
+    .step-meter { height: 2px; display: block; border-radius: 2px; overflow: hidden; background: #3a4655; }
+    .step-meter i { height: 100%; display: block; background: var(--step-color); transform: scaleX(0); transform-origin: left; }
+    .scene { background: #0e151e; border: 1px solid var(--edge); border-radius: 8px; padding: 10px; min-height: 100px; }
+    .scene p { color: var(--muted); }
+    .scene .math { color: var(--green); }
+    #measure .math, #count .math { color: var(--amber); }
+    #lookup .math { color: var(--violet); }
+    #send .math { color: var(--lime); }
+    .scale, .interval, .capacity-track { background: #2b394a; }
+    #pin { background: var(--violet); border-color: #101720; }
+    .interval span { background: var(--amber); }
+    #capacity-fill { background: var(--green); }
+    @media (max-width: 700px) {
+      .wrap { width: calc(100% - 20px); }
+      .bench { grid-template-columns: minmax(85px,.67fr) minmax(0,1.5fr); grid-template-areas: "phone board" "workflow workflow"; }
+      .phone { width: min(100%,155px); }
+    }
+    @media (max-width: 420px) {
+      .tabs { gap: 4px; }
+      .tabs button { padding: 5px 4px; }
+      .parts { gap: 6px; }
+      .board .gauge { width: 80%; }
+    }
+
+    .skip-link { position: absolute; left: 10px; top: 9px; z-index: 10; padding: 8px; background: #111923; transform: translateY(-160%); }
+    .skip-link:focus { transform: none; }
+    .hero {
+      padding-block: clamp(30px, 4vw, 52px);
+    }
+    .hero h1 { font-size: clamp(2.2rem, 5.25vw, 4rem); line-height: 1.03; }
+    .hero p { max-width: 64ch; margin-top: 12px; color: var(--muted); font-size: 1rem; }
+    .section-title { font-size: clamp(1.15rem, 2.4vw, 1.38rem); letter-spacing: -.02em; margin-bottom: 9px; }
+    .demo-section, .input-panel, .reference-area { scroll-margin-top: 14px; }
+    .controls { gap: 6px; }
+    .controls #notice { font-size: .77rem; }
+    .action.reset { margin-left: auto; background: transparent; }
+    .action.reset:hover { background: #263443; }
+    .bench { gap: 12px clamp(9px, 1.7vw, 24px); padding: clamp(10px, 1.5vw, 18px); }
+    .board { padding: 10px; }
+    .board h2 { margin-bottom: 6px; }
+    .workflow { align-self: stretch; }
+    .scene { min-height: 170px; }
+    .scene h3 { margin-bottom: 5px; }
+    .scene .step-note { color: var(--muted); max-width: 66ch; margin-block: 4px 8px; line-height: 1.55; }
+    .step-note strong { color: var(--ink); }
+    .scene .result-context { color: var(--muted); margin-top: 8px; }
+    .workflow:not([data-detailed="true"]) :is(.step-note, .simple-math),
+    .workflow[data-detailed="true"] .full-math { display: none; }
+    .scene[data-resolved="false"] .resolved-reading { visibility: hidden; }
+    .scene[data-resolved="true"] .resolved-reading { animation: reading-in .3s ease-out both; }
+    @keyframes reading-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+    .scene .equation { margin-top: 6px; border-left: 2px solid currentColor; padding-left: 8px; font-size: .79rem !important; }
+    .signal-key { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 9px; color: var(--muted); font-size: .76rem; }
+    .signal-key b { color: var(--green); font-family: var(--mono); margin-right: 2px; }
+    .timeline { display: flex; align-items: center; gap: 8px; margin-block: 4px 7px; }
+    .timeline label, #playback-time { color: var(--muted); font-size: .71rem; }
+    #playback-time { font-family: var(--mono); }
+    #progress { flex: 1; min-width: 0; min-height: 24px; }
+    .reading-grid, .handoff {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px;
+      padding: 0; margin: 6px 0 0;
+    }
+    .reading-grid div, .handoff li { min-width: 0; border: 1px solid var(--edge); border-radius: 5px; background: #17212b; padding: 4px 6px; }
+    .reading-grid dt, .handoff span { display: block; color: var(--muted); font-size: .7rem; }
+    .reading-grid dd, .handoff b { margin: 0; display: block; color: var(--amber); font: 700 .82rem/1.4 var(--mono); overflow-wrap: anywhere; }
+    .handoff { list-style: none; margin-block: 8px; }
+    .handoff b { color: var(--green); }
+    .handoff li { transition: border-color .22s, background .22s; }
+    .handoff[data-phase="0"] li:first-child, .handoff[data-phase="1"] li:nth-child(2) { border-color: var(--green); background: #192e3b; }
+    .handoff[data-phase="2"] li:last-child { border-color: var(--lime); background: #222e20; }
+    .handoff[data-phase="2"] li:last-child b { color: var(--lime); }
+    .receiver-anchor {
+      position: absolute; top: 20%; right: 12%; width: 10px; aspect-ratio: 1; border-radius: 2px;
+      border: 1px solid var(--green); background: #223e50; box-shadow: 0 0 10px #77d7ffa9; opacity: 0;
+    }
+    .phone[data-xray="true"][data-stage="send"] .receiver-anchor { opacity: 1; }
+    .phone[data-xray="true"][data-stage="measure"] .logic-board,
+    .phone[data-xray="true"][data-stage="calculate"] .logic-board { border-color: var(--green); box-shadow: 0 0 10px #77d7ff54; }
+    .phone[data-xray="true"][data-stage="lookup"] .pack { border-color: var(--violet); }
+    .phone[data-xray="true"][data-stage="count"] .pack { border-color: var(--amber); }
+    #load.active { border-color: #a8793a; color: var(--amber); background: #2a251f; box-shadow: none; }
+    .scale { margin-top: 9px; background: linear-gradient(90deg, #4b3c64, #8f6fc4); }
+    .interval-log { list-style-position: inside; padding: 0; gap: 4px; }
+    .interval-log li {
+      padding: 3px 5px; border: 1px solid #354456; border-radius: 5px; background: #18232f;
+      font: .7rem/1.3 var(--mono); color: var(--muted);
+    }
+    .interval-log li[data-counted="true"] { background: #31271b; border-color: #8e6a3d; color: var(--amber); }
+    .interval-log li[data-sampling="true"] { border-color: var(--amber); }
+    .interval-log:empty { display: none; }
+    .interval::after { content: ""; position: absolute; inset: 0; border-right: 1px solid #f7f9ff22; pointer-events: none; }
+    .capacity-track { position: relative; overflow: visible; margin-top: 12px; }
+    #capacity-start { position: absolute; top: -3px; height: 15px; border-left: 2px solid var(--violet); }
+    .range-labels { flex-wrap: wrap; }
+    .range-labels span:nth-child(2) { margin-left: auto; }
+    .input-panel { margin-top: 18px; padding: clamp(12px, 2vw, 20px); }
+    .input-panel .section-title { margin-bottom: 3px; }
+    .input-panel > p { color: var(--muted); font-size: .95rem; }
+    .reading-inputs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 28px; margin-top: 12px; }
+    .reading-inputs .slider { margin-top: 0; }
+    .reading-inputs .input-help { margin-top: 4px; color: var(--muted); font-size: .88rem; line-height: 1.5; }
+    .reference-area {
+      margin-top: 12px; padding-block: clamp(22px, 4vw, 40px);
+      border-top: 2px solid #405365; background: #111923;
+    }
+    .reference-intro { color: var(--muted); font-size: .95rem; }
+    .reference-grid {
+      display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(18px, 4vw, 42px);
+      align-items: start; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--edge);
+    }
+    .reference-area h3 { font-size: 1rem; }
+    .reference-sources { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--edge); }
+    .reference-terms { margin: 6px 0 0; }
+    .reference-terms div { padding: 8px 0; border-bottom: 1px solid var(--edge); }
+    .reference-terms div:last-child { border-bottom: 0; padding-bottom: 0; }
+    .reference-terms dt { font-weight: 700; }
+    .reference-terms dd { margin: 3px 0 0; color: var(--muted); }
+    .reference-terms, .source-list, .profile-table { font-size: .95rem; line-height: 1.55; }
+    .source-list { padding-left: 1.25em; margin: 0; color: var(--muted); }
+    .source-list li { padding-block: 4px; }
+    .source-list b { color: var(--ink); }
+    .profile-table { width: 100%; border-collapse: collapse; margin-top: 7px; }
+    .profile-table caption { text-align: left; color: var(--muted); margin-bottom: 7px; }
+    .profile-table td, .profile-table th { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--edge); }
+    .profile-table th { background: #192531; }
+    .profile-table td { font-variant-numeric: tabular-nums; }
+    .profile-table tbody tr:last-child td { border-bottom: 0; }
+    @media (max-width: 660px) {
+      .reference-grid, .reading-inputs { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 480px) {
+      .hero { padding-block: 25px 22px; }
+      .bench { gap: 8px; }
+      .controls #notice { margin-inline: 1px; }
+      .scene { min-height: 0; }
+      .reading-grid div, .handoff li { padding-inline: 4px; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to the demo</a>
+  <header>
+    <div class="wrap hero">
+      <h1>Where does your <strong>battery %</strong> come from?</h1>
+      <p>The battery percentage you check every day is an estimate. Watch how your phone works it out, from the first reading to the number on screen.</p>
+    </div>
+  </header>
+  <main class="wrap" id="main-content" tabindex="-1">
+    <section class="demo-section" id="demo" aria-labelledby="demo-title">
+      <h2 class="section-title" id="demo-title">Interactive demo</h2>
+      <div class="card controls">
+        <button type="button" class="action primary" id="play">Check battery</button>
+        <button type="button" class="action" id="next" hidden>Next step</button>
+        <button type="button" class="action" id="xray" aria-pressed="false" aria-controls="phone">X-ray</button>
+        <button type="button" class="action" id="detail-toggle" aria-pressed="false" aria-controls="workflow">Detailed version</button>
+        <button type="button" class="action reset" id="reset" title="Restore the original readings and controls">Reset</button>
+        <p id="notice">The phone is waiting for a battery reading.</p>
+      </div>
+      <section class="bench" id="bench" aria-label="Phone and its battery circuit">
+        <div class="phone" id="phone" data-xray="false" aria-label="Phone display">
+          <div class="glass">
+            <div class="internals" id="internals" aria-hidden="true">
+              <div class="logic-board" aria-label="Logic board"></div>
+              <div class="pack"><i id="pack-fill"></i><span>Battery cell</span></div>
+              <div class="internal-connector" aria-hidden="true"></div>
+            </div>
+            <div class="scan" aria-hidden="true"></div>
+            <div class="camera" aria-hidden="true"></div>
+            <div class="receiver-anchor" id="receiver-anchor" aria-hidden="true"></div>
+            <div class="statusbar">
+              <time datetime="10:24">10:24</time>
+              <div class="status-battery" id="status" data-ready="false" aria-label="Battery percentage">
+                <output id="shown"></output>
+                <span class="battery-icon" aria-hidden="true"><i id="battery-fill"></i></span>
+              </div>
+            </div>
+            <div class="gesture" aria-hidden="true"></div>
+          </div>
+        </div>
+        <div class="board">
+          <h2>Inside the phone</h2>
+          <div class="parts">
+            <button type="button" class="part" id="cell" data-jump="1">Battery</button>
+            <button type="button" class="part" id="sensor" data-jump="0">Current sensor <small>10 mΩ shunt</small></button>
+            <div class="part" id="load">Phone load</div>
+          </div>
+          <button type="button" class="gauge" id="gauge" data-jump="2">
+            <strong>Battery gauge</strong>
+            <span id="chip-value">Waiting</span>
+          </button>
+          <div class="legend" role="group" aria-label="Visible circuit layers">
+            <button type="button" class="layer" id="power-layer" aria-pressed="true">Power path</button>
+            <button type="button" class="layer" id="data-layer" aria-pressed="true">Data path</button>
+          </div>
+        </div>
+        <canvas id="connections" aria-hidden="true"></canvas>
+        <section class="card workflow" id="workflow" data-detailed="false" aria-label="Battery estimate workflow">
+          <h2>From sensor to status bar</h2>
+          <div class="tabs" role="group" aria-label="Inspect a step">
+            <button type="button" data-jump="0" aria-label="Measure" aria-pressed="false">
+              <span class="step-label">Measure</span>
+              <span class="step-reading" aria-hidden="true">—</span>
+              <span class="step-meter" aria-hidden="true"><i></i></span>
+            </button>
+            <button type="button" data-jump="1" aria-label="Look up" aria-pressed="false">
+              <span class="step-label">Look up</span>
+              <span class="step-reading" aria-hidden="true">—</span>
+              <span class="step-meter" aria-hidden="true"><i></i></span>
+            </button>
+            <button type="button" data-jump="2" aria-label="Count charge" aria-pressed="false">
+              <span class="step-label">Count charge</span>
+              <span class="step-reading" aria-hidden="true">—</span>
+              <span class="step-meter" aria-hidden="true"><i></i></span>
+            </button>
+            <button type="button" data-jump="3" aria-label="Calculate" aria-pressed="false">
+              <span class="step-label">Calculate</span>
+              <span class="step-reading" aria-hidden="true">—</span>
+              <span class="step-meter" aria-hidden="true"><i></i></span>
+            </button>
+            <button type="button" data-jump="4" aria-label="Show it" aria-pressed="false">
+              <span class="step-label">Show it</span>
+              <span class="step-reading" aria-hidden="true">—</span>
+              <span class="step-meter" aria-hidden="true"><i></i></span>
+            </button>
+          </div>
+          <div class="timeline">
+            <label for="progress">Playback</label>
+            <input id="progress" type="range" min="0" max="21200" step="100" value="0" aria-label="Playback position" aria-valuetext="Ready">
+            <span id="playback-time" aria-hidden="true">0:00</span>
+          </div>
+          <div class="scene" id="intro">
+            <h3>Waiting for a reading</h3>
+            <p>Start the check or jump to a step. The demo uses lab data for the voltage lookup and simulated readings for phone use.</p>
+            <p class="step-note">Choose any step to read at your own pace. The demo uses an earlier reading from when the battery was resting, then tracks how much charge the phone used.</p>
+            <div class="signal-key simple-math" aria-label="Battery estimation units">
+              <span><b>V</b> Voltage</span><span><b>mA</b> Current</span><span><b>mAh</b> Charge</span>
+            </div>
+          </div>
+          <div class="scene" id="measure" data-resolved="false" hidden>
+            <h3>Measure voltage and current</h3>
+            <p class="step-note">The phone draws current through a tiny resistor called a <strong>shunt</strong>. The more current flows, the bigger the voltage drop across that resistor. The gauge measures the drop and uses the known resistance to work out the current.</p>
+            <dl class="reading-grid full-math">
+              <div><dt>Shunt drop</dt><dd id="shunt-drop"></dd></div>
+              <div><dt>Shunt resistance</dt><dd>10 mΩ</dd></div>
+              <div><dt>Calculated current</dt><dd class="resolved-reading" id="sample-current"></dd></div>
+            </dl>
+            <p class="math equation full-math resolved-reading" id="shunt-math"></p>
+            <p class="math full-math" id="sensor-values"></p>
+            <p class="math equation simple-math resolved-reading" id="shunt-summary"></p>
+          </div>
+          <div class="scene" id="lookup" data-resolved="false" hidden>
+            <h3>Look up the starting charge</h3>
+            <p class="step-note">The gauge starts with an earlier reading taken while the battery was resting. This is called <strong>open-circuit voltage</strong>. It finds a table entry on either side of that voltage and estimates the starting charge between them.</p>
+            <div class="scale" aria-hidden="true"><span id="pin"></span></div>
+            <div class="range-labels"><span id="low"></span><span id="high"></span></div>
+            <p class="math equation full-math resolved-reading" id="lookup-math"></p>
+            <p class="math equation simple-math resolved-reading" id="lookup-summary"></p>
+          </div>
+          <div class="scene" id="count" hidden>
+            <h3>Track how much charge flowed out</h3>
+            <p class="step-note">The gauge keeps a log of the current drawn throughout the run. It multiplies current by time for each interval and adds up the charge used. This is called <strong>coulomb counting</strong>.</p>
+            <div class="usage" id="intervals" aria-hidden="true"></div>
+            <ol class="interval-log" id="interval-log" aria-label="Charge used in each interval"></ol>
+            <p class="math equation full-math" id="count-math"></p>
+            <p class="math equation simple-math" id="count-summary"></p>
+          </div>
+          <div class="scene" id="calculate" data-resolved="false" hidden>
+            <h3>Calculate the percentage inside the gauge</h3>
+            <p class="step-note">The gauge compares the charge left with what the battery can hold when full. That fraction is the <strong>state of charge</strong>. The purple mark shows where the estimate started, and the filled bar shows what remains.</p>
+            <div class="capacity-track" aria-hidden="true"><span id="capacity-fill"></span><i id="capacity-start"></i></div>
+            <div class="range-labels"><span>Empty</span><span>Full · 3,000 mAh</span></div>
+            <p class="math equation full-math resolved-reading" id="calculate-math"></p>
+            <p class="math equation simple-math resolved-reading" id="calculate-summary"></p>
+          </div>
+          <div class="scene" id="send" hidden>
+            <h3>Send the result to the display</h3>
+            <p class="step-note">In this demo, the gauge rounds its estimate to a <strong>whole percent</strong>. The phone’s software reads that value over a data connection and updates the number in the status bar.</p>
+            <ol class="handoff" id="handoff" data-phase="0" aria-label="How the estimate reaches the screen">
+              <li><span>Gauge</span><b class="full-math" id="packet-value"></b><b class="simple-math" id="packet-summary"></b></li>
+              <li><span>Phone software</span><b id="receiver-state">Waiting</b></li>
+              <li><span>Status bar</span><b id="screen-value">—</b></li>
+            </ol>
+            <p class="result-context" id="starting-result" hidden>With 0 minutes of use in this run, the screen shows the starting charge estimate.</p>
+          </div>
+          <div class="sr-only" id="announce" role="status" aria-atomic="true"></div>
+        </section>
+      </section>
+    </section>
+    <section class="card input-panel" id="inputs" aria-labelledby="inputs-title">
+      <h2 class="section-title" id="inputs-title">Try a different battery reading</h2>
+      <p>Each check is a new simulation run. Keep the resting voltage the same to compare different amounts of use from the same starting charge.</p>
+      <div class="reading-inputs">
+        <div class="slider">
+          <label for="minutes">Time spent using the phone <span id="minutes-label">10 min</span></label>
+          <input type="range" id="minutes" min="0" max="40" step="1" value="10" aria-describedby="minutes-help">
+          <p class="input-help" id="minutes-help">Choose how much past use to include before the check. At <strong>0 min</strong>, the model subtracts zero charge and shows the starting estimate. On a real phone, lighter use slows the drain.</p>
+        </div>
+        <div class="slider">
+          <label for="voltage">Battery voltage at rest <span id="voltage-label">3.816 V</span></label>
+          <input type="range" id="voltage" min="3.750" max="4.040" step="0.001" value="3.816" aria-describedby="voltage-help">
+          <p class="input-help" id="voltage-help">The voltage measured before the phone started drawing current. The gauge looks it up to estimate how much charge was there to begin with. For this battery, a higher resting voltage gives a higher starting percentage.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+  <footer class="reference-area" id="model" aria-labelledby="model-title">
+    <div class="wrap">
+      <h2 class="section-title" id="model-title">Reference</h2>
+      <p class="reference-intro">Optional reading about the terms, measured data, and sources used in the demo.</p>
+      <div class="reference-grid">
+        <section aria-labelledby="terms-title">
+          <h3 id="terms-title">Key terms</h3>
+          <dl class="reference-terms">
+            <div><dt>Fuel gauge</dt><dd>Chip that estimates how much charge remains and reports it to the phone.</dd></div>
+            <div><dt>Shunt resistor</dt><dd>Known resistance in the power path. Current equals voltage drop divided by resistance.</dd></div>
+            <div><dt>Voltage sag</dt><dd>The cell voltage dips under load and can recover when current stops.</dd></div>
+            <div><dt>Full-charge capacity</dt><dd>The estimated charge a full battery can hold. Real gauges can adjust this estimate as the battery ages.</dd></div>
+          </dl>
+        </section>
+        <section aria-labelledby="table-title">
+          <h3 id="table-title">Resting-voltage lookup table</h3>
+          <table class="profile-table">
+            <caption>Nine lookup points derived from Analog Devices’ measurements of one lithium-ion cell. The gauge estimates between the two rows that bracket the reading.</caption>
+            <thead><tr><th scope="col">Resting voltage (V)</th><th scope="col">State of charge (%)</th></tr></thead>
+            <tbody id="profile-rows"></tbody>
+          </table>
+        </section>
+      </div>
+      <section class="reference-sources" id="sources" aria-labelledby="sources-title">
+        <h3 id="sources-title">Sources and assumptions</h3>
+        <ul class="source-list">
+          <li><a href="https://www.analog.com/en/resources/design-notes/characterizing-a-lithiumion-li-cell-for-use-with-an-opencircuitvoltage-ocv-based-fuel-gauge.html">Analog Devices cell characterization</a> · measured voltage-to-charge table</li>
+          <li><a href="https://www.ti.com/lit/ds/symlink/bq27441-g1.pdf">Texas Instruments bq27441-G1 datasheet</a> · real 10 mΩ current sensing and gauge communication over I²C</li>
+          <li><b>Simulated example</b> · shunt samples, full-charge capacity, and 75 mΩ cell resistance. The demo combines the techniques into a simplified gauge.</li>
+        </ul>
+      </section>
+    </div>
+  </footer>
+  <script>
+    "use strict";
+
+    const FULL_CAPACITY = 3000;
+    const BASE_VOLTAGE = 3.816;
+    const SHUNT_RESISTANCE = 0.010;
+    const INTERNAL_RESISTANCE = 0.075;
+    // Table 2 lookup points derived from Analog Devices' cell measurements.
+    const PROFILE = [
+      [3.305545, 0], [3.674776, 5], [3.686654, 10], [3.762185, 25], [3.79325, 40],
+      [3.841219, 55], [3.884009, 60], [4.026773, 82.5], [4.177454, 100]
+    ];
+    const SHUNT_LOG = [
+      { end: 3, millivolts: 4.8 },
+      { end: 7, millivolts: 9.6 },
+      { end: 40, millivolts: 10.4 }
+    ];
+
+    function interpolate(value, points) {
+      const rightIndex = points.findIndex(([x], i) => i > 0 && value <= x);
+      const index = rightIndex === -1 ? points.length - 1 : rightIndex;
+      const a = points[index - 1];
+      const b = points[index];
+      const fraction = Math.max(0, Math.min(1, (value - a[0]) / (b[0] - a[0])));
+      return { a, b, fraction, value: a[1] + fraction * (b[1] - a[1]) };
+    }
+
+    const VOLTAGE_FROM_PERCENT = PROFILE.map(([volts, percent]) => [percent, volts]);
+
+    function estimateBattery(minutes, voltage = BASE_VOLTAGE) {
+      const lookup = interpolate(voltage, PROFILE);
+      const startMah = FULL_CAPACITY * lookup.value / 100;
+      const intervals = SHUNT_LOG.flatMap(({ end, millivolts }, i) => {
+        const start = i === 0 ? 0 : SHUNT_LOG[i - 1].end;
+        const duration = Math.min(minutes, end) - start;
+        const current = millivolts / SHUNT_RESISTANCE;
+        return duration > 0 ? [{ millivolts, current, duration, usedMah: current * duration / 60 }] : [];
+      });
+      const usedMah = intervals.reduce((total, interval) => total + interval.usedMah, 0);
+      const leftMah = Math.max(0, startMah - usedMah);
+      const percent = 100 * leftMah / FULL_CAPACITY;
+      const { current = 0, millivolts: shuntMillivolts = 0 } = intervals.at(-1) ?? {};
+      const terminalVoltage = interpolate(percent, VOLTAGE_FROM_PERCENT).value - current / 1000 * INTERNAL_RESISTANCE;
+      return { lookup, startMah, intervals, usedMah, leftMah, percent, current, shuntMillivolts, terminalVoltage,
+        shown: Math.round(percent) };
+    }
+
+    function formatEstimate(percent) {
+      const hundredths = percent.toFixed(2);
+      // Keep the intermediate label on the correct side of a half-percent boundary.
+      return (Math.round(Number(hundredths)) === Math.round(percent) ? hundredths : percent.toFixed(4)) + "%";
+    }
+
+    function chargeThrough(intervals, minutes) {
+      let remaining = minutes;
+      let used = 0;
+      for (const interval of intervals) {
+        const spentHere = Math.max(0, Math.min(remaining, interval.duration));
+        used += interval.current * spentHere / 60;
+        remaining -= spentHere;
+      }
+      return used;
+    }
+
+    const $ = id => document.getElementById(id);
+    const format = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format;
+    const volts = value => value.toFixed(3) + " V";
+    const sceneIds = ["measure", "lookup", "count", "calculate", "send"];
+    const [MEASURE, LOOKUP, COUNT, CALCULATE, SEND] = sceneIds.map((_, i) => i);
+    const stops = [0, 3600, 7900, 13500, 17200, 21200];
+    const readingReveal = [1150, 1300, 0, 1400, 0];
+    const end = stops.at(-1);
+    const readAt = 1750;
+    const revealAt = 2350;
+    const prefersReducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+    const canvas = $("connections");
+    const context = canvas.getContext("2d");
+    const inspectButtons = [...document.querySelectorAll("[data-jump]")];
+    const stepCards = [...document.querySelectorAll(".tabs button")].map(button => ({
+      button, reading: button.querySelector(".step-reading"), meter: button.querySelector(".step-meter i")
+    }));
+    let position = 0;
+    let scene = -1;
+    let playing = false;
+    let frame = 0;
+    let previous = null;
+    let result;
+    let geometry;
+    let isDelivered = false;
+    const layers = { power: true, data: true };
+
+    function pointAlong(points, progress) {
+      const lengths = points.slice(1).map((point, i) => Math.hypot(point.x - points[i].x, point.y - points[i].y));
+      let remaining = lengths.reduce((sum, value) => sum + value, 0) * Math.max(0, Math.min(1, progress));
+      for (let i = 0; i < lengths.length; i++) {
+        if (remaining <= lengths[i] && lengths[i]) {
+          const share = remaining / lengths[i];
+          const a = points[i];
+          const b = points[i + 1];
+          return { x: a.x + (b.x - a.x) * share, y: a.y + (b.y - a.y) * share };
+        }
+        remaining -= lengths[i];
+      }
+      return points.at(-1);
+    }
+
+    function measureLayout() {
+      if (!context) return;
+      const bounds = $("bench").getBoundingClientRect();
+      const dpr = devicePixelRatio || 1;
+      canvas.width = Math.round(bounds.width * dpr);
+      canvas.height = Math.round(bounds.height * dpr);
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const anchor = (id, x, y) => {
+        const box = $(id).getBoundingClientRect();
+        return { x: box.left - bounds.left + box.width * x, y: box.top - bounds.top + box.height * y };
+      };
+      const senseBottom = anchor("sensor", .5, 1);
+      const gaugeTop = anchor("gauge", .5, 0);
+      const gaugeLeft = anchor("gauge", 0, .5);
+      const target = anchor("status", .8, .5);
+      const receiver = anchor("receiver-anchor", .5, .5);
+      const cableX = (anchor("phone", 1, .5).x + anchor("cell", 0, .5).x) / 2;
+      const dataY = (senseBottom.y + gaugeTop.y) / 2;
+      geometry = {
+        width: bounds.width, height: bounds.height,
+        current: [anchor("cell", 1, .5), anchor("sensor", 0, .5), anchor("sensor", 1, .5), anchor("load", 0, .5)],
+        read: [senseBottom, { x: senseBottom.x, y: dataY }, { x: gaugeTop.x, y: dataY }, gaugeTop],
+        send: [gaugeLeft, { x: cableX, y: gaugeLeft.y }, { x: cableX, y: receiver.y }, receiver],
+        display: [receiver, { x: target.x, y: receiver.y }, target]
+      };
+      drawConnections();
+    }
+
+    function line(points, color, dashed, glow = 0) {
+      context.strokeStyle = color;
+      context.lineWidth = 1.7;
+      context.shadowColor = color;
+      context.shadowBlur = glow;
+      context.setLineDash(dashed ? [4, 3] : []);
+      context.beginPath();
+      context.moveTo(points[0].x, points[0].y);
+      for (const point of points.slice(1)) context.lineTo(point.x, point.y);
+      context.stroke();
+      context.setLineDash([]);
+      context.shadowBlur = 0;
+    }
+
+    function pulse(points, fraction, color, radius) {
+      const point = pointAlong(points, fraction);
+      context.fillStyle = color;
+      context.beginPath();
+      context.arc(point.x, point.y, radius, 0, 2 * Math.PI);
+      context.fill();
+      return point;
+    }
+
+    const within = () => scene < 0 ? 0 : position - stops[scene];
+
+    function drawConnections() {
+      if (!geometry) return;
+      const { width, height, current, read, send, display } = geometry;
+      const reduced = prefersReducedMotion.matches;
+      const elapsed = within();
+      const carryingCurrent = (scene === MEASURE || scene === COUNT) && result.current > 0;
+      context.clearRect(0, 0, width, height);
+      if (layers.power) line(current, carryingCurrent ? "#ffc26b" : "#8e6e3e", false, carryingCurrent ? 7 : 0);
+      if (layers.data) line(read, scene === MEASURE ? "#6bd9ff" : "#52758d", true, scene === MEASURE ? 7 : 0);
+      if (layers.power && carryingCurrent) {
+        const wave = reduced ? .18 : elapsed / 1050;
+        for (let i = 0; i < 4; i++) pulse(current, (wave + i / 4) % 1, "#ffcd84", 2.6);
+      }
+      if (layers.data && scene === MEASURE) pulse(read, reduced ? .7 : (elapsed / 1150) % 1, "#78dfff", 3);
+      if (layers.data && scene === SEND) line(send, isDelivered ? "#52758d" : "#62d6ff", true, isDelivered ? 0 : 8);
+      if (layers.data && scene === SEND && !isDelivered && !reduced) {
+        const toDisplay = elapsed >= readAt;
+        const route = toDisplay ? display : send;
+        const travel = toDisplay ? (elapsed - readAt) / (revealAt - readAt) : elapsed / readAt;
+        if (toDisplay) line(display, "#bce878", true, 9);
+        for (let i = 6; i > 0; i--) {
+          if (travel < i * .025) continue;
+          context.globalAlpha = (7 - i) / 12;
+          pulse(route, travel - i * .025, toDisplay ? "#cdf473" : "#8adfff", 1.7);
+        }
+        context.globalAlpha = 1;
+        const dot = pulse(route, travel, toDisplay ? "#ddff98" : "#9fe7ff", 4);
+        if (toDisplay) return;
+        context.font = "700 12px Segoe UI, sans-serif";
+        const label = "SOC " + result.shown + "%";
+        const boxWidth = context.measureText(label).width + 12;
+        const x = Math.max(3, Math.min(width - boxWidth - 3, dot.x - boxWidth / 2));
+        const y = Math.max(3, dot.y - 25);
+        context.fillStyle = "#9fe7ff";
+        context.fillRect(x, y, boxWidth, 18);
+        context.fillStyle = "#101927";
+        context.fillText(label, x + 6, y + 13);
+      }
+      if (layers.data && scene === SEND && isDelivered && !reduced && elapsed < revealAt + 680) {
+        const target = display.at(-1);
+        const fade = (elapsed - revealAt) / 680;
+        context.strokeStyle = "#cbf36f";
+        context.lineWidth = 1.4;
+        context.globalAlpha = 1 - fade;
+        context.beginPath();
+        context.arc(target.x, target.y, 4 + 18 * fade, 0, 2 * Math.PI);
+        context.stroke();
+        context.globalAlpha = 1;
+      }
+    }
+
+    function updateResult() {
+      const minutes = Number($("minutes").value);
+      const voltage = Number($("voltage").value);
+      result = estimateBattery(minutes, voltage);
+      const estimate = formatEstimate(result.percent);
+      $("minutes-label").textContent = minutes + " min";
+      $("voltage-label").textContent = volts(voltage);
+      $("minutes").setAttribute("aria-valuetext", minutes + " minutes");
+      $("voltage").setAttribute("aria-valuetext", volts(voltage));
+      $("shunt-drop").textContent = format(result.shuntMillivolts) + " mV";
+      $("sample-current").textContent = format(result.current) + " mA";
+      $("shunt-math").textContent = format(result.shuntMillivolts) + " mV ÷ 10 mΩ = " +
+        format(result.current / 1000) + " A (" + format(result.current) + " mA)";
+      $("shunt-summary").textContent = format(result.shuntMillivolts) + " mV across the shunt → " +
+        format(result.current) + " mA of current";
+      const restReading = volts(voltage) + " at rest";
+      $("sensor-values").textContent = result.current > 0 ?
+        restReading + " · " + volts(result.terminalVoltage) + " under load (modeled)" : restReading;
+      $("low").textContent = result.lookup.a[0] + " V · " + result.lookup.a[1] + "%";
+      $("high").textContent = result.lookup.b[0] + " V · " + result.lookup.b[1] + "%";
+      $("lookup-math").textContent = volts(voltage) + " → " + result.lookup.a[1] + "% + " +
+        result.lookup.fraction.toFixed(4) + " × (" + result.lookup.b[1] + "% − " + result.lookup.a[1] + "%) ≈ " +
+        result.lookup.value.toFixed(2) + "% at rest";
+      $("lookup-summary").textContent = volts(voltage) + " at rest → about " +
+        result.lookup.value.toFixed(1) + "% to start";
+      const intervalLabels = result.intervals.map(interval => {
+        const label = document.createElement("li");
+        const calculation = document.createElement("span");
+        calculation.className = "full-math";
+        calculation.textContent = format(interval.current) + " mA × " + interval.duration + "/60 h = " +
+          format(interval.usedMah) + " mAh";
+        const summary = document.createElement("span");
+        summary.className = "simple-math";
+        summary.textContent = interval.duration + " min → " + format(interval.usedMah) + " mAh";
+        label.append(calculation, summary);
+        return label;
+      });
+      $("interval-log").replaceChildren(...intervalLabels);
+      $("calculate-math").textContent = format(result.leftMah) + " mAh ÷ " + format(FULL_CAPACITY) +
+        " mAh × 100 ≈ " + estimate;
+      $("calculate-summary").textContent = "About " + format(Math.round(result.leftMah)) + " mAh left out of " +
+        format(FULL_CAPACITY) + " mAh";
+      $("capacity-start").style.left = result.lookup.value + "%";
+      $("packet-value").textContent = estimate + " → " + result.shown + "%";
+      $("packet-summary").textContent = "Reports " + result.shown + "%";
+      const bars = result.intervals.map(interval => {
+        const bar = document.createElement("div");
+        bar.className = "interval";
+        bar.style.flex = interval.duration + " 1 0";
+        bar.style.setProperty("--height", (10 + 19 * interval.current / 1040) + "px");
+        bar.append(document.createElement("span"));
+        return bar;
+      });
+      $("intervals").replaceChildren(...bars);
+    }
+
+    function updateScene() {
+      $("intro").hidden = scene !== -1;
+      sceneIds.forEach((id, i) => { $(id).hidden = scene !== i; });
+      stepCards.forEach(({ button }, i) => {
+        button.setAttribute("aria-pressed", String(i === scene));
+        button.dataset.complete = String(i < scene);
+      });
+      $("phone").dataset.stage = scene < 0 ? "ready" : sceneIds[scene];
+      $("cell").classList.toggle("active", scene === LOOKUP);
+      $("sensor").classList.toggle("active", scene === MEASURE);
+      $("load").classList.toggle("active", scene === MEASURE || scene === COUNT);
+      $("gauge").classList.toggle("active", scene >= LOOKUP);
+      $("next").hidden = scene === -1 || scene === SEND;
+      $("play").textContent = playing ? "Pause" : position >= end ? "Run again" : scene === -1 ? "Check battery" : "Continue";
+    }
+
+    function renderFrame() {
+      const timeline = $("progress");
+      const progress = Math.min(end, Math.floor(position / 100) * 100);
+      const seconds = Math.floor(position / 1000);
+      const timeLabel = "0:" + String(seconds).padStart(2, "0");
+      if (Number(timeline.value) !== progress) timeline.value = progress;
+      if ($("playback-time").textContent !== timeLabel) $("playback-time").textContent = timeLabel;
+      const elapsed = within();
+      const reduced = prefersReducedMotion.matches;
+      const started = scene >= 0;
+      const resultReady = reduced || elapsed >= readingReveal[scene];
+      if (started && readingReveal[scene]) {
+        const activeScene = $(sceneIds[scene]);
+        const resolved = String(resultReady);
+        if (activeScene.dataset.resolved !== resolved) activeScene.dataset.resolved = resolved;
+      }
+      const read = scene === SEND && (reduced || elapsed >= readAt);
+      const done = scene === SEND && (reduced || elapsed >= revealAt);
+      const playbackLabel = started ? sceneIds[scene] + " at " + seconds + " seconds" : "Ready";
+      if (timeline.getAttribute("aria-valuetext") !== playbackLabel) timeline.setAttribute("aria-valuetext", playbackLabel);
+      if (done !== isDelivered) {
+        isDelivered = done;
+        $("status").dataset.ready = String(done);
+        $("shown").textContent = done ? result.shown + "%" : "";
+        $("battery-fill").style.width = result.shown + "%";
+        $("starting-result").hidden = !done || result.usedMah !== 0;
+        if (done) $("announce").textContent = "The phone received the estimate and displays " + result.shown + " percent.";
+      }
+      const notice = done ? "Battery reading received." : scene === SEND ? "Phone software reads the estimate." :
+        started ? "The gauge is working out the percentage." : "The phone is waiting for a battery reading.";
+      if ($("notice").textContent !== notice) $("notice").textContent = notice;
+      if (scene === LOOKUP) {
+        const moved = result.lookup.fraction * (reduced ? 1 : Math.min(1, elapsed / readingReveal[LOOKUP]));
+        $("pin").style.left = moved * 100 + "%";
+      }
+      let used = 0;
+      if (scene === COUNT) {
+        const time = result.intervals.reduce((sum, x) => sum + x.duration, 0);
+        let simulated = time * (reduced ? 1 : Math.min(1, elapsed / 3200));
+        used = chargeThrough(result.intervals, simulated);
+        [...$("intervals").children].forEach((bar, i) => {
+          const duration = result.intervals[i].duration;
+          bar.firstElementChild.style.width = Math.max(0, Math.min(100, simulated / duration * 100)) + "%";
+          $("interval-log").children[i].dataset.counted = String(simulated + 1e-8 >= duration);
+          $("interval-log").children[i].dataset.sampling = String(simulated > 0 && simulated < duration);
+          simulated -= duration;
+        });
+        const left = Math.max(0, result.startMah - used);
+        $("count-math").textContent = format(result.startMah) + " mAh − " + format(used) + " mAh = " +
+          format(left) + " mAh left";
+        $("count-summary").textContent = format(Math.round(used)) + " mAh used · About " +
+          format(Math.round(left)) + " mAh left";
+      }
+      if (scene === CALCULATE) {
+        const portion = reduced ? 1 : Math.min(1, elapsed / readingReveal[CALCULATE]);
+        $("capacity-fill").style.width = result.lookup.value + (result.percent - result.lookup.value) * portion + "%";
+      }
+      if (scene === SEND) {
+        const phase = done ? "2" : read ? "1" : "0";
+        if ($("handoff").dataset.phase !== phase) $("handoff").dataset.phase = phase;
+        const receiver = read ? "Read " + result.shown + "%" : "Reading…";
+        const screen = done ? result.shown + "%" : "—";
+        if ($("receiver-state").textContent !== receiver) $("receiver-state").textContent = receiver;
+        if ($("screen-value").textContent !== screen) $("screen-value").textContent = screen;
+      }
+      const estimate = formatEstimate(result.percent);
+      const gaugeLabels = [
+        resultReady ? format(result.current) + " mA sampled" : "Reading sensors",
+        resultReady ? result.lookup.value.toFixed(2) + "% to start" : "Looking up",
+        format(Math.max(0, result.startMah - used)) + " mAh",
+        resultReady ? estimate : "Calculating…",
+        result.shown + "% ready"
+      ];
+      const chipLabel = started ? gaugeLabels[scene] : "Waiting";
+      if ($("chip-value").textContent !== chipLabel) $("chip-value").textContent = chipLabel;
+      const countedMah = scene === COUNT ? used : result.usedMah;
+      const readings = [format(result.current) + " mA", result.lookup.value.toFixed(2) + "% at rest",
+        format(countedMah) + " mAh used", estimate, done ? result.shown + "%" : "Sending…"];
+      stepCards.forEach(({ reading, meter }, i) => {
+        const value = i < scene || (i === scene && resultReady) ? readings[i] : "—";
+        if (reading.textContent !== value) reading.textContent = value;
+        const progress = i < scene ? 1 : i === scene ? elapsed / (stops[i + 1] - stops[i]) : 0;
+        meter.style.transform = "scaleX(" + progress + ")";
+      });
+      const packPercent = scene >= CALCULATE ? result.percent : (result.startMah - used) / FULL_CAPACITY * 100;
+      $("pack-fill").style.height = Math.max(0, packPercent) + "%";
+      drawConnections();
+    }
+
+    function seek(next) {
+      position = Math.max(0, Math.min(end, next));
+      const newScene = sceneIds.findLastIndex((_, i) => position >= stops[i]);
+      if (scene !== newScene) {
+        scene = newScene;
+        updateScene();
+        $("announce").textContent = $(sceneIds[scene]).querySelector("h3").textContent;
+      }
+      renderFrame();
+    }
+
+    function animate(now) {
+      if (!playing) return;
+      if (previous !== null) seek(position + Math.max(0, Math.min(100, now - previous)));
+      previous = now;
+      if (position >= end) {
+        playing = false;
+        previous = null;
+        updateScene();
+      } else {
+        frame = requestAnimationFrame(animate);
+      }
+    }
+
+    function pause() {
+      playing = false;
+      cancelAnimationFrame(frame);
+      previous = null;
+    }
+
+    $("play").addEventListener("click", () => {
+      if (playing) {
+        pause();
+        updateScene();
+        return;
+      }
+      playing = true;
+      if (scene === -1 || position >= end) {
+        $("demo").scrollIntoView({ behavior: prefersReducedMotion.matches ? "auto" : "smooth", block: "start" });
+        seek(0);
+      }
+      updateScene();
+      frame = requestAnimationFrame(animate);
+    });
+
+    function inspectStep(i) {
+      seek(Math.min(stops[i] + 3300, stops[i + 1] - 1));
+    }
+
+    $("next").addEventListener("click", () => {
+      if (playing) seek(stops[scene + 1]);
+      else inspectStep(scene + 1);
+      previous = null;
+    });
+
+    function setXray(enabled) {
+      $("phone").dataset.xray = String(enabled);
+      $("xray").setAttribute("aria-pressed", String(enabled));
+      $("internals").setAttribute("aria-hidden", String(!enabled));
+    }
+
+    $("xray").addEventListener("click", () => {
+      setXray($("phone").dataset.xray !== "true");
+    });
+
+    function setDetailed(enabled) {
+      $("workflow").dataset.detailed = String(enabled);
+      $("detail-toggle").setAttribute("aria-pressed", String(enabled));
+    }
+
+    $("detail-toggle").addEventListener("click", () => {
+      setDetailed($("workflow").dataset.detailed !== "true");
+    });
+
+    for (const layer of ["power", "data"]) {
+      const button = $(layer + "-layer");
+      button.addEventListener("click", () => {
+        layers[layer] = !layers[layer];
+        button.setAttribute("aria-pressed", String(layers[layer]));
+        drawConnections();
+      });
+    }
+
+    for (const button of inspectButtons) button.addEventListener("click", () => {
+      pause();
+      inspectStep(Number(button.dataset.jump));
+      updateScene();
+    });
+
+    function resetPlayback() {
+      pause();
+      scene = -1;
+      position = 0;
+      $("announce").textContent = "";
+      updateResult();
+      updateScene();
+      renderFrame();
+    }
+
+    for (const id of ["minutes", "voltage"]) $(id).addEventListener("input", resetPlayback);
+
+    $("progress").addEventListener("input", event => {
+      pause();
+      seek(Number(event.currentTarget.value));
+      updateScene();
+    });
+
+    $("reset").addEventListener("click", () => {
+      for (const id of ["minutes", "voltage"]) $(id).value = $(id).defaultValue;
+      setXray(false);
+      setDetailed(false);
+      for (const layer of ["power", "data"]) {
+        layers[layer] = true;
+        $(layer + "-layer").setAttribute("aria-pressed", "true");
+      }
+      resetPlayback();
+    });
+
+    const profileRows = PROFILE.map(([voltage, percent]) => {
+      const row = document.createElement("tr");
+      row.insertCell().textContent = String(voltage);
+      row.insertCell().textContent = String(percent);
+      return row;
+    });
+    $("profile-rows").replaceChildren(...profileRows);
+    $("progress").max = end;
+    updateResult();
+    updateScene();
+    renderFrame();
+    new ResizeObserver(measureLayout).observe($("bench"));
+    measureLayout();
+  </script>
+</body>
+</html>
+
