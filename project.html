@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111923">
+  <meta name="description" content="Project notes for an interactive model of how a phone estimates its battery percentage.">
+  <title>Where does your battery % come from? | Project</title>
+  <style>
+    :root { color-scheme: dark; background: #0c1016; color: #ebf0f6; font: 1rem/1.6 "Segoe UI", system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    .wrap { width: min(880px, calc(100% - 36px)); margin-inline: auto; }
+    header { padding-block: clamp(28px, 6vw, 64px); background: radial-gradient(ellipse at 0 100%, #1b3347, transparent 72%), #111923; border-bottom: 1px solid #364758; }
+    h1 { max-width: 19ch; margin: 0 0 12px; font-size: clamp(2.55rem, 7vw, 4.3rem); line-height: 1.03; letter-spacing: -.045em; }
+    h1 strong { color: #d1f477; font-weight: inherit; white-space: nowrap; }
+    p { margin: 0 0 12px; max-width: 70ch; }
+    header p, li, .muted { color: #b7c5d2; }
+    a { color: #aadfff; text-underline-offset: .15em; }
+    .open { display: inline-block; margin-top: 8px; border-radius: 7px; background: #d1f477; color: #18210d; padding: 8px 13px; font-weight: 750; text-decoration: none; }
+    a:focus-visible { outline: 2px solid #aadfff; outline-offset: 3px; }
+    main { padding-block: 26px 40px; }
+    section + section { margin-top: 25px; padding-top: 20px; border-top: 1px solid #334353; }
+    h2 { margin: 0 0 8px; font-size: 1.35rem; }
+    ol, ul { margin-block: 6px 0; padding-left: 1.4em; }
+    li { margin-block: 3px; }
+    li strong { color: #ebf0f6; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <h1>Where does your <strong>battery %</strong> come from?</h1>
+      <p>A browser-based simulation of how a phone turns electrical measurements into the battery percentage you see.</p>
+      <a class="open" href="index.html">Open the interactive demo</a>
+    </div>
+  </header>
+  <main class="wrap">
+    <section aria-labelledby="idea-title">
+      <h2 id="idea-title">The question</h2>
+      <p>We use the number in the corner of the screen to decide when to charge. That number is itself an estimate. Inside the phone, a fuel gauge works out how much charge is probably left and passes the result to the software that draws the status bar.</p>
+    </section>
+    <section aria-labelledby="demo-title">
+      <h2 id="demo-title">What you can try</h2>
+      <p>Start with <strong>Check battery</strong>. After 10 minutes of simulated use, the gauge reports <strong>42%</strong>. Then set <strong>Time spent using the phone</strong> to <strong>0 min</strong>, leave the resting voltage at 3.816 V, and run a second check. <strong>47%</strong> is the estimate at the start of both runs. The first run spends 140 mAh before the check, and the second spends zero.</p>
+      <p>X-ray reveals the phone internals. The Power path and Data path toggles help you follow current and readings separately. Detailed version adds explanations alongside the key numbers.</p>
+    </section>
+    <section aria-labelledby="mechanism-title">
+      <h2 id="mechanism-title">What the code computes</h2>
+      <ol>
+        <li><strong>Measure.</strong> Divide the voltage drop across a 10 mΩ shunt by its resistance to estimate current.</li>
+        <li><strong>Look up.</strong> Interpolate between measured values for one lithium-ion cell to estimate the starting charge from resting voltage.</li>
+        <li><strong>Count.</strong> Add up current × time over the sample intervals and subtract that charge from the starting amount.</li>
+        <li><strong>Calculate.</strong> Divide the remaining charge by the modeled full capacity of 3,000 mAh. In the default run, about 1,273 mAh remains, or 42.45%.</li>
+        <li><strong>Report.</strong> Round the estimate and pass the whole percent to the simulated phone display.</li>
+      </ol>
+      <p class="muted">The lookup points are derived from lab measurements of one lithium-ion cell. The default 3.816 V input falls between 3.79325 V (40%) and 3.841219 V (55%), giving a starting estimate of 47.11%. The input readings and cell capacity are simulated. The under-load voltage illustrates voltage sag. The estimate uses the resting voltage and the current log. The model runs entirely in the browser.</p>
+    </section>
+    <section aria-labelledby="sources-title">
+      <h2 id="sources-title">Sources</h2>
+      <ul>
+        <li><a href="https://www.analog.com/en/resources/design-notes/characterizing-a-lithiumion-li-cell-for-use-with-an-opencircuitvoltage-ocv-based-fuel-gauge.html">Analog Devices cell characterization</a> · resting-voltage lookup data.</li>
+        <li><a href="https://www.ti.com/lit/ds/symlink/bq27441-g1.pdf">Texas Instruments bq27441-G1 datasheet</a> · an example of a real fuel gauge that uses a shunt and communicates with the host.</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
